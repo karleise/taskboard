@@ -187,9 +187,8 @@ export default {
         toast.success('¡Sesión iniciada exitosamente!');
         // Redirect to home
         router.push('/');
-      } catch (error) {
-        console.error('Login error:', error);
-        toast.error('Error en el inicio de sesión: ' + error.message);
+      } catch{
+        toast.error('Error en el inicio de sesión');
       }
     };
 

@@ -1,19 +1,43 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import axios from 'axios';
+import { arrayUnion, collection, doc, getDocs, runTransaction } from 'firebase/firestore';
+import { auth, db } from '@/firebase/config';
 
 const tasks = ref([]);
 const loading = ref(false);
 const error = ref('');
 const filter = ref('all');
+const assignedBy = ref({});
+const assigningId = ref(null);
 
-const fetchTasks = async () => {
+const loadTasks = async () => {
+  const { data } = await axios.get('https://dummyjson.com/todos');
+  tasks.value = Array.isArray(data?.todos) ? data.todos : [];
+};
+
+const loadAssignments = async () => {
+  const snapshot = await getDocs(collection(db, 'taskAssignments'));
+  const assignedMap = {};
+
+  snapshot.forEach((docSnap) => {
+    const data = docSnap.data();
+    const taskId = data?.taskId ?? docSnap.id;
+
+    if (taskId !== undefined && taskId !== null) {
+      assignedMap[Number(taskId)] = data?.uid;
+    }
+  });
+
+  assignedBy.value = assignedMap;
+};
+
+const fetchAll = async () => {
   loading.value = true;
   error.value = '';
 
   try {
-    const { data } = await axios.get('https://dummyjson.com/todos');
-    tasks.value = Array.isArray(data?.todos) ? data.todos : [];
+    await Promise.all([loadTasks(), loadAssignments()]);
   } catch (err) {
     error.value = 'No se pudieron cargar las tareas. Intenta de nuevo.';
   } finally {
@@ -31,15 +55,97 @@ const filteredTasks = computed(() => {
   }
 
   if (filter.value === 'assigned') {
-    return tasks.value.filter(
-      (task) => task.userId !== null && task.userId !== undefined
-    );
+    return tasks.value.filter((task) => Boolean(assignedBy.value[task.id]));
   }
 
   return tasks.value;
 });
 
-onMounted(fetchTasks);
+const assignmentLabel = (task) => {
+  const assignedUid = assignedBy.value[task.id];
+
+  if (!assignedUid) {
+    return 'Sin asignar';
+  }
+
+  if (assignedUid === auth.currentUser?.uid) {
+    return 'En tu workspace';
+  }
+
+  return 'Asignada';
+};
+
+const canAssign = (task) => {
+  if (task.completed) {
+    return false;
+  }
+
+  const assignedUid = assignedBy.value[task.id];
+  return !assignedUid;
+};
+
+const addTaskToWorkspace = async (task) => {
+  if (task.completed) {
+    return;
+  }
+
+  const user = auth.currentUser;
+  if (!user) {
+    error.value = 'Debes iniciar sesión para asignar tareas.';
+    return;
+  }
+
+  const assignedUid = assignedBy.value[task.id];
+  if (assignedUid && assignedUid !== user.uid) {
+    return;
+  }
+
+  assigningId.value = task.id;
+
+  try {
+    const assignmentRef = doc(db, 'taskAssignments', String(task.id));
+    const userRef = doc(db, 'usuarios', user.uid);
+
+    await runTransaction(db, async (transaction) => {
+      const assignmentSnap = await transaction.get(assignmentRef);
+      if (assignmentSnap.exists()) {
+        throw new Error('assigned');
+      }
+
+      transaction.set(assignmentRef, {
+        taskId: task.id,
+        uid: user.uid,
+        todo: task.todo,
+        completed: task.completed,
+      });
+
+      transaction.set(
+        userRef,
+        {
+          tasks: arrayUnion({
+            id: task.id,
+            todo: task.todo,
+            completed: task.completed,
+          }),
+        },
+        { merge: true }
+      );
+    });
+
+    await loadAssignments();
+  } catch (err) {
+    if (err?.message === 'assigned') {
+      error.value = 'La tarea ya fue asignada a otro usuario.';
+      await loadAssignments();
+    } else {
+      error.value = 'No se pudo asignar la tarea. Intenta de nuevo.';
+    }
+  } finally {
+    assigningId.value = null;
+  }
+};
+
+onMounted(fetchAll);
 </script>
 
 <template>
@@ -68,7 +174,7 @@ onMounted(fetchTasks);
 
     <div v-else-if="error" class="tasks-error">
       <p>{{ error }}</p>
-      <button class="retry-btn" @click="fetchTasks">Reintentar</button>
+      <button class="retry-btn" @click="fetchAll">Reintentar</button>
     </div>
 
     <div v-else-if="filteredTasks.length === 0" class="tasks-empty">
@@ -81,16 +187,37 @@ onMounted(fetchTasks);
       <li v-for="task in filteredTasks" :key="task.id" class="task-card">
         <div>
           <p class="task-title">{{ task.todo }}</p>
-          <p class="task-meta">
-            {{ task.userId ? `Asignada a usuario #${task.userId}` : 'Sin asignar' }}
-          </p>
+          <p class="task-meta">{{ assignmentLabel(task) }}</p>
         </div>
-        <span
-          class="task-status"
-          :class="task.completed ? 'status-completed' : 'status-pending'"
-        >
-          {{ task.completed ? 'Completada' : 'Pendiente' }}
-        </span>
+
+        <div class="task-actions">
+          <span
+            class="task-status"
+            :class="task.completed ? 'status-completed' : 'status-pending'"
+          >
+            {{ task.completed ? 'Completada' : 'Pendiente' }}
+          </span>
+
+          <button
+            v-if="canAssign(task)"
+            class="task-assign"
+            :disabled="assigningId === task.id"
+            @click="addTaskToWorkspace(task)"
+          >
+            {{ assigningId === task.id ? 'Agregando...' : 'Agregar' }}
+          </button>
+
+          <span
+            v-else-if="!task.completed && assignedBy[task.id] === auth.currentUser?.uid"
+            class="task-assigned"
+          >
+            En tu workspace
+          </span>
+
+          <span v-else-if="!task.completed" class="task-assigned">
+            Asignada
+          </span>
+        </div>
       </li>
     </ul>
   </div>
@@ -230,21 +357,22 @@ onMounted(fetchTasks);
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
 }
 
 .task-card {
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
-  align-items: flex-start;
   gap: 1rem;
   background: white;
   padding: 1.5rem;
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   border: 1px solid #f0f0f0;
+  min-height: 180px;
 }
 
 .task-title {
@@ -266,6 +394,44 @@ onMounted(fetchTasks);
   font-size: 0.85rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.task-assign {
+  background: #2c2c2c;
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+.task-assign:hover {
+  background-color: #3b3b3b;
+  transform: translateY(-1px);
+}
+
+.task-assign:disabled {
+  cursor: wait;
+  opacity: 0.7;
+  transform: none;
+}
+
+.task-assigned {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #8b5e3c;
+  background: rgba(201, 168, 118, 0.15);
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
 }
 
 .status-completed {
@@ -300,9 +466,14 @@ onMounted(fetchTasks);
     min-height: 300px;
   }
 
-  .task-card {
-    flex-direction: column;
-    align-items: flex-start;
+  .tasks-list {
+    grid-template-columns: 1fr;
+  }
+
+  .task-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 
