@@ -1,22 +1,15 @@
 <script setup>
-  import { ref, onMounted } from 'vue';
-  import { logOut } from '@/stores/auth';
-  import { getAuth, onAuthStateChanged } from 'firebase/auth';
+  import { computed } from 'vue';
+  import { useAuthStore } from '@/stores/auth';
   import { useRouter } from 'vue-router';
 
   const router = useRouter();
-  const usuariolog = ref(false);
-  const auth = getAuth();
+  const authStore = useAuthStore();
 
-  onMounted(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      usuariolog.value = !!user
-    })
-    return unsubscribe
-  })
+  const usuariolog = computed(() => authStore.isAuthenticated);
 
   const logout = async () => {
-    await logOut();
+    await authStore.logout();
     router.push('/login');
   };
 </script>

@@ -166,33 +166,27 @@
 }
 </style>
 
-<script>
-import { ref } from 'vue';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/firebase/config';
-import { useToast } from 'vue-toastification';
-import { useRouter } from 'vue-router';
+<script setup>
+import { ref } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+import { useToast } from 'vue-toastification'
+import { useRouter } from 'vue-router'
 
-export default {
-  setup() {
-    const email = ref('');
-    const password = ref('');
-    const toast = useToast();
-    const router = useRouter();
+const {login} = useAuthStore()
+const toast = useToast()
+const router = useRouter()
 
-    const handleLogin = async () => {
-      try {
-        await signInWithEmailAndPassword(auth, email.value, password.value);
-        // Show success message
-        toast.success('¡Sesión iniciada exitosamente!');
-        // Redirect to home
-        router.push('/');
-      } catch{
-        toast.error('Error en el inicio de sesión');
-      }
-    };
+const email = ref('')
+const password = ref('')
 
-    return { email, password, handleLogin };
+const handleLogin = async () => {
+  const res = await login(email.value, password.value)
+
+  if (res.ok) {
+    toast.success('¡Sesión iniciada exitosamente!')
+    router.push('/')
+  } else {
+    toast.error('Error en el inicio de sesión')
   }
-};
+}
 </script>

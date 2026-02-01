@@ -1,95 +1,129 @@
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
 import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signOut,
-    sendEmailVerification,
-    onAuthStateChanged
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  sendEmailVerification,
+  onAuthStateChanged,
 } from "firebase/auth";
 import { auth } from "@/firebase/config";
-import { ref } from "vue";
 
-const user = ref(null)
+export const useAuthStore = defineStore("auth", () => {
+  // State
+  const user = ref(null);
+  const loading = ref(false);
+  const error = ref(null);
 
-onAuthStateChanged(auth,(firebaseUser)=>{
-    user.value = firebaseUser
-})
+  // Getters
+  const isAuthenticated = computed(() => user.value !== null);
+  const currentUser = computed(() => user.value);
 
+  // Actions
+  const init = () => {
+    onAuthStateChanged(auth, (firebaseUser) => {
+      user.value = firebaseUser;
+    });
+  };
 
-//HOW TO USE:
-//   Crear funcion registrar async
-//          const res = await doRegister(email.value, password.value)
-//          if(res.ok) >>>>>>> EL REGISTRO FUNCIONO!
-//              y ya hacemos las pirulas necesarias
-const doRegister = async(email, password)=>{
+  const login = async (email, password) => {
     try {
-        const credenciales = await createUserWithEmailAndPassword(auth, email, password)
-        return{
-            ok:true,
-            user : credenciales
-        }
-    } catch (error) {
-        console.log(error)
+      loading.value = true;
+      error.value = null;
+      const credenciales = await signInWithEmailAndPassword(auth, email, password);
+      return {
+        ok: true,
+        user: credenciales,
+      };
+    } catch (err) {
+      console.error(err);
+      error.value = err.message;
+      return {
+        ok: false,
+        error: err.message,
+      };
+    } finally {
+      loading.value = false;
     }
+  };
 
-}
-
-//HOW TO USE:
-//   Crear funcion logear
-//          const res = await doLogin(email.value, password.value)
-//          if(res.ok) >>>>>>> EL REGISTRO FUNCIONO!
-//              y ya hacemos las pirulas necesarias
-const doLogin = async(email, password)=>{
+  const register = async (email, password) => {
     try {
-        const credenciales = await signInWithEmailAndPassword(auth, email, password)
-        return{
-            ok:true,
-            user:credenciales
-        }
-    } catch (error) {
-        console.log(error)
+      loading.value = true;
+      error.value = null;
+      const credenciales = await createUserWithEmailAndPassword(auth, email, password);
+      return {
+        ok: true,
+        user: credenciales,
+      };
+    } catch (err) {
+      console.error(err);
+      error.value = err.message;
+      return {
+        ok: false,
+        error: err.message,
+      };
+    } finally {
+      loading.value = false;
     }
+  };
 
-}
-// HOW TO USE:
-//     crear funcion salir async
-//         await logout() y ya
-// if res.ok => ya hacemos cosas
-const logOut = async()=>{
+  const logout = async () => {
     try {
-        await signOut(auth)
-        return{
-            ok:true
-        }
-    } catch (error) {
-        console.log(error)
+      loading.value = true;
+      error.value = null;
+      await signOut(auth);
+      user.value = null;
+      return {
+        ok: true,
+      };
+    } catch (err) {
+      console.error(err);
+      error.value = err.message;
+      return {
+        ok: false,
+        error: err.message,
+      };
+    } finally {
+      loading.value = false;
     }
-}
+  };
 
-
-//HOW TO USE:
-const sendEmail = async()=>{
+  const sendVerificationEmail = async () => {
     try {
-        if(user.value.emailVerified){
-            return{
-                mensaje: "Usuario ya verificado"
-            }
-        }
-        await sendEmailVerification(user.value)
-        return{
-            mensaje : "email enviado",
-            ok: true
-        }
-    } catch (error) {
-        console.log(error)
+      if (user.value?.emailVerified) {
+        return {
+          mensaje: "Usuario ya verificado",
+          ok: true,
+        };
+      }
+      await sendEmailVerification(user.value);
+      return {
+        mensaje: "Email enviado",
+        ok: true,
+      };
+    } catch (err) {
+      console.error(err);
+      return {
+        ok: false,
+        error: err.message,
+      };
     }
-}
+  };
 
-export const estaAutenticado = () => {
-    return user.value !== null
-}
-
-export const obtenerUsuario = () => {
-    return user.value
-}
-
-export {doLogin, doRegister, logOut, sendEmail, user}
+  return {
+    // State
+    user,
+    loading,
+    error,
+    // Getters
+    isAuthenticated,
+    currentUser,
+    // Actions
+    init,
+    login,
+    register,
+    logout,
+    sendVerificationEmail,
+  };
+});
