@@ -1,7 +1,3 @@
-¡Claro! Aquí tienes el mismo contenido **reformulado**, manteniendo exactamente la misma información pero con otras palabras y un tono limpio y profesional 👌
-
----
-
 ### Tecnologías utilizadas
 
 * **Vue 3 (Composition API):** Permite una arquitectura clara, moderna y fácil de mantener.
