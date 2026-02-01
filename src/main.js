@@ -25,3 +25,5 @@ const authStore = useAuthStore();
 authStore.init();
 
 app.mount("#app");
+console.log("ENV:", import.meta.env);
+
